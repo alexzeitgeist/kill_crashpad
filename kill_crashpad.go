@@ -3,65 +3,84 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/shirou/gopsutil/v3/process"
+	"io/ioutil"
+	"log"
 	"os"
+	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
-func findProcessByName(processName string) (int32, error) {
-	processList, err := process.Processes()
+func main() {
+	processName := flag.String("process", "chrome_crashpad", "Name of the process to monitor and kill")
+	checkInterval := flag.Duration("interval", 30*time.Second, "Interval between process checks")
+	flag.Parse()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	processMap := make(map[int]string)
+
+	ticker := time.NewTicker(*checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			updateProcessMap(processMap)
+
+			for pid, name := range processMap {
+				if name == *processName {
+					if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+						log.Printf("Error killing process %s with PID %d: %v", *processName, pid, err)
+					} else {
+						log.Printf("Killed process %s with PID %d\n", *processName, pid)
+						delete(processMap, pid) // remove process ID from the map
+					}
+				}
+			}
+		case sig := <-sigChan:
+			log.Printf("Received signal: %v. Exiting...\n", sig)
+			return
+		}
+	}
+}
+
+func updateProcessMap(processMap map[int]string) {
+	files, err := ioutil.ReadDir("/proc")
 	if err != nil {
-		return -1, err
+		log.Printf("Error reading /proc: %v", err)
+		return
 	}
 
-	for _, proc := range processList {
-		name, err := proc.Name()
+	for _, file := range files {
+		if !file.IsDir() {
+			continue
+		}
+
+		pid, err := strconv.Atoi(file.Name())
 		if err != nil {
 			continue
 		}
 
-		if name == processName {
-			return proc.Pid, nil
-		}
-	}
-
-	return -1, nil
-}
-
-func killProcess(pid int32) error {
-	targetProcess, err := os.FindProcess(int(pid))
-	if err != nil {
-		return fmt.Errorf("failed to find process with PID %d: %v", pid, err)
-	}
-
-	err = targetProcess.Signal(syscall.SIGTERM)
-	if err != nil {
-		return fmt.Errorf("failed to kill process with PID %d: %v", pid, err)
-	}
-
-	return nil
-}
-
-func main() {
-	processName := flag.String("process", "chrome_crashpad_handler", "Name of the process to monitor and kill")
-	checkInterval := flag.Duration("interval", 600*time.Second, "Interval between process checks")
-	flag.Parse()
-
-	for {
-		pid, err := findProcessByName(*processName)
-		if err != nil {
-			fmt.Printf("Error finding %s process: %v\n", *processName, err)
-		} else if pid != -1 {
-			fmt.Printf("Found %s process with PID %d. Killing it...\n", *processName, pid)
-			err := killProcess(pid)
-			if err != nil {
-				fmt.Printf("Error killing %s process: %v\n", *processName, err)
-			} else {
-				fmt.Printf("Killed %s process with PID %d.\n", *processName, pid)
+		if name, ok := processMap[pid]; ok {
+			if name == "" {
+				processMap[pid] = getProcessName(pid)
 			}
+		} else {
+			processMap[pid] = getProcessName(pid)
 		}
-
-		time.Sleep(*checkInterval)
 	}
 }
+
+func getProcessName(pid int) string {
+	data, err := ioutil.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(data))
+}
+
