@@ -26,6 +26,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	processMap := make(map[int]string)
+	targetPIDs := make(map[int]struct{})
 
 	ticker := time.NewTicker(*checkInterval)
 	defer ticker.Stop()
@@ -33,16 +34,15 @@ func main() {
 	for {
 		select {
 		case <-ticker.C:
-			updateProcessMap(processMap)
+			updateProcessMap(processMap, targetPIDs, *processName)
 
-			for pid, name := range processMap {
-				if name == *processName {
-					if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-						log.Printf("Error killing process %s with PID %d: %v", *processName, pid, err)
-					} else {
-						log.Printf("Killed process %s with PID %d\n", *processName, pid)
-						delete(processMap, pid) // remove process ID from the map
-					}
+			for pid := range targetPIDs {
+				if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+					log.Printf("Error killing process %s with PID %d: %v", *processName, pid, err)
+				} else {
+					log.Printf("Killed process %s with PID %d\n", *processName, pid)
+					delete(processMap, pid) // remove process ID from the map
+					delete(targetPIDs, pid) // remove process ID from the targetPIDs map
 				}
 			}
 		case sig := <-sigChan:
@@ -52,7 +52,7 @@ func main() {
 	}
 }
 
-func updateProcessMap(processMap map[int]string) {
+func updateProcessMap(processMap map[int]string, targetPIDs map[int]struct{}, targetName string) {
 	files, err := os.ReadDir("/proc")
 	if err != nil {
 		log.Printf("Error reading /proc: %v", err)
@@ -72,9 +72,15 @@ func updateProcessMap(processMap map[int]string) {
 		if name, ok := processMap[pid]; ok {
 			if name == "" {
 				processMap[pid] = getProcessName(pid)
+				if processMap[pid] == targetName {
+					targetPIDs[pid] = struct{}{}
+				}
 			}
 		} else {
 			processMap[pid] = getProcessName(pid)
+			if processMap[pid] == targetName {
+				targetPIDs[pid] = struct{}{}
+			}
 		}
 	}
 }
