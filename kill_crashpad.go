@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -49,7 +48,7 @@ func main() {
 }
 
 func updateProcessMap(processMap map[int]string) {
-	files, err := ioutil.ReadDir("/proc")
+	files, err := os.ReadDir("/proc")
 	if err != nil {
 		log.Printf("Error reading /proc: %v", err)
 		return
@@ -76,11 +75,10 @@ func updateProcessMap(processMap map[int]string) {
 }
 
 func getProcessName(pid int) string {
-	data, err := ioutil.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 	if err != nil {
 		return ""
 	}
 
 	return strings.TrimSpace(string(data))
 }
-
