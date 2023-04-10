@@ -13,35 +13,35 @@ import (
 )
 
 const (
-	defaultProcessName   = "chrome_crashpad"
-	defaultCheckInterval = 60 * time.Second
+	defProcName   = "chrome_crashpad"
+	defCheckIntvl = 60 * time.Second
 )
 
 func main() {
-	processName := flag.String("process", defaultProcessName, "Name of the process to monitor and kill")
-	checkInterval := flag.Duration("interval", defaultCheckInterval, "Interval between process checks")
+	procName := flag.String("process", defProcName, "Name of the process to monitor and kill")
+	checkIntvl := flag.Duration("interval", defCheckIntvl, "Interval between process checks")
 	flag.Parse()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	processMap := make(map[int]string)
+	procMap := make(map[int]string)
 	targetPIDs := make(map[int]struct{})
 
-	ticker := time.NewTicker(*checkInterval)
+	ticker := time.NewTicker(*checkIntvl)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			updateProcessMap(processMap, targetPIDs, *processName)
+			updateProcMap(procMap, targetPIDs, *procName)
 
 			for pid := range targetPIDs {
 				if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-					log.Printf("Error killing process %s with PID %d: %v", *processName, pid, err)
+					log.Printf("Error killing process %s with PID %d: %v", *procName, pid, err)
 				} else {
-					log.Printf("Killed process %s with PID %d\n", *processName, pid)
-					delete(processMap, pid) // remove process ID from the map
+					log.Printf("Killed process %s with PID %d\n", *procName, pid)
+					delete(procMap, pid) // remove process ID from the map
 					delete(targetPIDs, pid) // remove process ID from the targetPIDs map
 				}
 			}
@@ -52,7 +52,7 @@ func main() {
 	}
 }
 
-func updateProcessMap(processMap map[int]string, targetPIDs map[int]struct{}, targetName string) {
+func updateProcMap(procMap map[int]string, targetPIDs map[int]struct{}, targetName string) {
 	files, err := os.ReadDir("/proc")
 	if err != nil {
 		log.Printf("Error reading /proc: %v", err)
@@ -69,23 +69,23 @@ func updateProcessMap(processMap map[int]string, targetPIDs map[int]struct{}, ta
 			continue
 		}
 
-		if name, ok := processMap[pid]; ok {
+		if name, ok := procMap[pid]; ok {
 			if name == "" {
-				processMap[pid] = getProcessName(pid)
-				if processMap[pid] == targetName {
+				procMap[pid] = getProcName(pid)
+				if procMap[pid] == targetName {
 					targetPIDs[pid] = struct{}{}
 				}
 			}
 		} else {
-			processMap[pid] = getProcessName(pid)
-			if processMap[pid] == targetName {
+			procMap[pid] = getProcName(pid)
+			if procMap[pid] == targetName {
 				targetPIDs[pid] = struct{}{}
 			}
 		}
 	}
 }
 
-func getProcessName(pid int) string {
+func getProcName(pid int) string {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
 	if err != nil {
 		return ""
