@@ -12,9 +12,14 @@ import (
 	"time"
 )
 
+const (
+	defaultProcessName   = "chrome_crashpad"
+	defaultCheckInterval = 60 * time.Second
+)
+
 func main() {
-	processName := flag.String("process", "chrome_crashpad", "Name of the process to monitor and kill")
-	checkInterval := flag.Duration("interval", 30*time.Second, "Interval between process checks")
+	processName := flag.String("process", defaultProcessName, "Name of the process to monitor and kill")
+	checkInterval := flag.Duration("interval", defaultCheckInterval, "Interval between process checks")
 	flag.Parse()
 
 	sigChan := make(chan os.Signal, 1)
